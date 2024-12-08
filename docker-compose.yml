@@ -1,0 +1,64 @@
+services:
+  kafka1:
+    image: confluentinc/cp-kafka:latest
+    hostname: kafka1
+    container_name: kafka1
+    ports:
+      - "9092:9092"
+      - "19091:19091"
+    environment:
+      # KRaft specific settings
+      KAFKA_BROKER_ID: 1
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka1:29093'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONNECTIONS_FROM_HOST://0.0.0.0:19091,CONTROLLER://kafka1:29093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,CONNECTIONS_FROM_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka1:9092,CONNECTIONS_FROM_HOST://localhost:19091'
+      # Other required configs
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      # Enable KRaft with custom cluster ID
+      KAFKA_KRAFT_CLUSTER_ID: 'ergo-streaming-f8def-4269-9d5a-12b3d'
+      CLUSTER_ID: 'ergo-streaming-f8def-4269-9d5a-12b3d'
+    volumes:
+      - "./kafka-data:/var/lib/kafka/data:rw"
+    healthcheck:
+      test: kafka-topics --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  init-kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: init-kafka
+    depends_on:
+      kafka1:
+        condition: service_healthy
+    volumes:
+      - "./create-topic.sh:/create-topic.sh:ro"
+    command: >
+      bash -c "
+        echo 'Formatting storage for KRaft...' &&
+        kafka-storage format -t ergo-streaming-f8def-4269-9d5a-12b3d -c /etc/kafka/kraft/server.properties &&
+        echo 'Creating topics...' &&
+        sh /create-topic.sh
+      "
+  streamer:
+    container_name: streamer
+    build: .
+    volumes:
+      - "./conf:/usr/conf:ro"
+      - "./log:/var/log/app:rw"
+    command: --config-yaml-path=/usr/conf/config.yml
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      init-kafka:
+        condition: service_completed_successfully
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "10"

@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "ergo-chain-sync",
+    "ergo-mempool-sync",
+    "spectrum-offchain",
+    "spectrum-offchain-lm",
+    "spectrum-deploy-lm-pool"
+]
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
+lto = true

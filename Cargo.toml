@@ -1,0 +1,32 @@
+[package]
+name = "ergo-streaming"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81.0"
+
+[[bin]]
+name = "ergo-streaming"
+path = "src/main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+spectrum-offchain = { path = "./spectrum-offchain-ergo/spectrum-offchain" }
+ergo-chain-sync = { path = "./spectrum-offchain-ergo/ergo-chain-sync" }
+ergo-mempool-sync = { path = "./spectrum-offchain-ergo/ergo-mempool-sync" }
+kafka = "0.9"
+async-trait = "0.1.58"
+base64 = "0.21.0"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
+serde_yaml = "0.9"
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7" }
+isahc = { version = "1.7.2", features = ["json"] }
+clap = { version = "4.0", features = ["derive"] }
+log4rs = "1.2.0"
+tokio = { version = "1.22.0", features = ["full"] }
+futures = "0.3.25"
+base16 = "0.2.1"
+wasm-timer = "0.2.5"
+async-std = { version = "1.12.0", features = ["attributes"] }
+log = "0.4.17"
