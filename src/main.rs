@@ -58,6 +58,7 @@ async fn main() {
         Some(&SIGNAL_TIP_REACHED),
         config.chain_sync_batch_size,
         config.chain_sync_chunk_size,
+        config.chain_sync_throttle_ms,
     )
     .await;
     let cache_mempool = ChainCacheRocksDB::new(RocksConfig {
@@ -85,6 +86,7 @@ async fn main() {
         cache_mempool,
         config.chain_sync_batch_size,
         config.chain_sync_chunk_size,
+        config.chain_sync_throttle_ms,
     );
 
     let mempool_sync = mempool_sync_stream(
@@ -134,6 +136,7 @@ struct AppConfig<'a> {
     mempool_sync_interval: u64,
     chain_sync_batch_size: u32,
     chain_sync_chunk_size: usize,
+    chain_sync_throttle_ms: u64,
 }
 
 #[derive(Parser)]

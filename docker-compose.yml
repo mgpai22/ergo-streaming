@@ -52,6 +52,7 @@ services:
     volumes:
       - "./conf:/usr/conf:ro"
       - "./log:/var/log/app:rw"
+      - "./chain-data:/data:rw"
     command: --config-yaml-path=/usr/conf/config.yml
     depends_on:
       kafka1:
