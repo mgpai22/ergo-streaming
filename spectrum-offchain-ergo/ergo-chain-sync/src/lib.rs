@@ -42,7 +42,11 @@ impl SyncState {
 
 #[async_trait::async_trait(?Send)]
 pub trait InitChainSync<TChainSync> {
-    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
+    async fn init(
+        self,
+        starting_height: u32,
+        tip_reached_signal: Option<&'static Once>,
+    ) -> TChainSync;
 }
 
 pub struct ChainSyncNonInit<'a, TClient, TCache> {
@@ -50,15 +54,23 @@ pub struct ChainSyncNonInit<'a, TClient, TCache> {
     cache: TCache,
     batch_size: u32,
     chunk_size: usize,
+    throttle_ms: u64,
 }
 
 impl<'a, TClient, TCache> ChainSyncNonInit<'a, TClient, TCache> {
-    pub fn new(client: &'a TClient, cache: TCache, batch_size: u32, chunk_size: usize) -> Self {
+    pub fn new(
+        client: &'a TClient,
+        cache: TCache,
+        batch_size: u32,
+        chunk_size: usize,
+        throttle_ms: u64,
+    ) -> Self {
         Self {
             client,
             cache,
             batch_size,
             chunk_size,
+            throttle_ms,
         }
     }
 }
@@ -82,6 +94,7 @@ where
             tip_reached_signal,
             self.batch_size,
             self.chunk_size,
+            self.throttle_ms,
         )
         .await
     }
@@ -98,6 +111,7 @@ pub struct ChainSync<'a, TClient, TCache> {
     tip_reached_signal: Option<&'a Once>,
     batch_size: u32,
     chunk_size: usize,
+    throttle_ms: u64,
 }
 
 impl<'a, TClient, TCache> ChainSync<'a, TClient, TCache>
@@ -112,6 +126,7 @@ where
         tip_reached_signal: Option<&'a Once>,
         batch_size: u32,
         chunk_size: usize,
+        throttle_ms: u64,
     ) -> ChainSync<'a, TClient, TCache> {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
@@ -131,6 +146,7 @@ where
             tip_reached_signal,
             batch_size,
             chunk_size,
+            throttle_ms,
         }
     }
 
@@ -173,15 +189,21 @@ where
                         break;
                     }
 
-                    info!(
-                        target: "chain_sync",
-                        "Processing block [{:?}] at height [{}]",
-                        api_blk.header.id,
-                        block_height
-                    );
+                    let mut cache = self.cache.lock().await;
+
+                    // Check if we already have this block
+                    if cache.exists(api_blk.header.id).await {
+                        trace!(
+                            target: "chain_sync",
+                            "Skipping block [{}], already in cache at height: {}",
+                            api_blk.header.id,
+                            block_height
+                        );
+                        self.state.lock().await.upgrade();
+                        continue;
+                    }
 
                     let parent_id = api_blk.header.parent_id;
-                    let mut cache = self.cache.lock().await;
                     let linked = cache.exists(parent_id).await;
                     if linked || block_height == self.starting_height {
                         trace!(target: "chain_sync", "Chain is linked, upgrading ..");
@@ -227,8 +249,6 @@ where
     }
 }
 
-const THROTTLE_SECS: u64 = 1;
-
 pub fn chain_sync_stream<'a, TClient, TCache>(
     chain_sync: ChainSync<'a, TClient, TCache>,
 ) -> impl Stream<Item = ChainUpgrade> + 'a
@@ -247,7 +267,7 @@ where
                     yield upgrade;
                 }
             } else {
-                *chain_sync.delay.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_SECS)));
+                *chain_sync.delay.lock().await = Some(Delay::new(Duration::from_millis(chain_sync.throttle_ms)));
                 if let Some(sig) = chain_sync.tip_reached_signal {
                     sig.call_once(|| {
                         trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
