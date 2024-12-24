@@ -31,14 +31,18 @@ impl EventHandler<TxEvent> for ProxyEvents {
         async move {
             let kafka_event = KafkaEvent::from(ev_clone.clone());
             let tx_id: String = match ev_clone {
-                TxEvent::AppliedTx { tx, .. } | TxEvent::UnappliedTx(tx) => tx.id().into(),
+                TxEvent::AppliedTx { ref tx, .. } | TxEvent::UnappliedTx(ref tx) => tx.id().into(),
             };
             let kafka_string = serde_json::to_string(&kafka_event).unwrap();
             let topic = topic.clone().lock().await.clone();
             spawn_blocking(move || {
                 let rec: &Record<String, String> =
                     &Record::from_key_value(topic.as_str(), tx_id.clone(), kafka_string);
-                info!("Got new event. Key: ${:?}", tx_id);
+                let event_type = match ev_clone {
+                    TxEvent::AppliedTx { .. } => "AppliedTx",
+                    TxEvent::UnappliedTx(_) => "UnappliedTx",
+                };
+                info!("Got new event. Type: {}, Key: ${:?}", event_type, tx_id);
                 producer.lock().unwrap().send(rec).unwrap();
                 info!("New event processed by kafka. Key: ${:?}", tx_id);
             })
