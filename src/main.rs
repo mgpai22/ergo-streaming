@@ -91,7 +91,7 @@ async fn main() {
 
     let mempool_sync = mempool_sync_stream(
         MempoolSyncConf {
-            sync_interval: Duration::from_secs(config.mempool_sync_interval),
+            sync_interval_ms: config.mempool_sync_interval_ms,
         },
         mempool_chain_sync,
         &node,
@@ -133,7 +133,7 @@ struct AppConfig<'a> {
     blocks_topic: &'a str,
     tx_topic: &'a str,
     mempool_topic: &'a str,
-    mempool_sync_interval: u64,
+    mempool_sync_interval_ms: u64,
     chain_sync_batch_size: u32,
     chain_sync_chunk_size: usize,
     chain_sync_throttle_ms: u64,

@@ -8,7 +8,7 @@ kafka_address: "kafka1:9092"
 blocks_topic: "blocks_topic"
 tx_topic: "tx_topic"
 mempool_topic: "mempool_topic"
-mempool_sync_interval: 1
-chain_sync_batch_size: 10
-chain_sync_chunk_size: 5
+mempool_sync_interval_ms: 1000
+chain_sync_batch_size: 50
+chain_sync_chunk_size: 10
 chain_sync_throttle_ms: 1000

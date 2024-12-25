@@ -61,7 +61,7 @@ impl SyncState {
 
 #[derive(Debug, Copy, Clone)]
 pub struct MempoolSyncConf {
-    pub sync_interval: Duration,
+    pub sync_interval_ms: u64,
 }
 
 const TXS_PER_REQUEST: usize = 100;
@@ -184,7 +184,7 @@ where
             if let Some(upd) = maybe_upd { // First, try to pop updates
                 yield Some(upd)
             } else { // Wait otherwise
-                let _ = Delay::new(conf.sync_interval).await;
+                let _ = Delay::new(Duration::from_millis(conf.sync_interval_ms)).await;
             }
             sync(client, Arc::clone(&state)).await;
         }
