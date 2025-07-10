@@ -48,11 +48,13 @@ pub enum BlockEvent {
         timestamp: u64,
         height: u32,
         id: String,
+        num_txs: usize,
     },
     BlockUnapply {
         timestamp: u64,
         height: u32,
         id: String,
+        num_txs: usize,
     },
 }
 
@@ -64,13 +66,14 @@ impl From<ChainUpgrade> for BlockEvent {
                 parent_id: _,
                 height,
                 timestamp,
-                transactions: _,
+                transactions,
             }) => {
                 let id: String = base16::encode_lower(id.0 .0.as_ref());
                 BlockEvent::BlockApply {
                     timestamp,
                     height,
                     id,
+                    num_txs: transactions.len(),
                 }
             }
             ChainUpgrade::RollBackward(Block {
@@ -78,13 +81,14 @@ impl From<ChainUpgrade> for BlockEvent {
                 parent_id: _,
                 height,
                 timestamp,
-                transactions: _,
+                transactions,
             }) => {
                 let id: String = base16::encode_lower(id.0 .0.as_ref());
                 BlockEvent::BlockUnapply {
                     timestamp,
                     height,
                     id,
+                    num_txs: transactions.len(),
                 }
             }
         }
