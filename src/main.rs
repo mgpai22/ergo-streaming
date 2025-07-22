@@ -100,11 +100,13 @@ async fn main() {
 
     let mempool_source =
         mempool_event_source(mempool_sync, producer3, config.mempool_topic.to_string());
-    let event_source = tx_event_source(block_event_source(
-        chain_sync_stream(chain_sync),
+    let chain_upgrade_stream = chain_sync_stream(chain_sync);
+    let chain_upgrade_stream_with_blocks = block_event_source(
+        chain_upgrade_stream,
         producer1,
         config.blocks_topic.to_string(),
-    ));
+    );
+    let event_source = tx_event_source(chain_upgrade_stream_with_blocks);
     let handler = ProxyEvents::new(
         Arc::new(std::sync::Mutex::new(producer2)),
         config.tx_topic.to_string(),

@@ -4,12 +4,12 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{Sink, SinkExt};
 use log::trace;
 use tokio::sync::Mutex;
 
+use ergo_chain_sync::client::model::BlockTransaction;
 use ergo_mempool_sync::MempoolUpdate;
 
 use crate::box_resolver::persistence::EntityRepo;
@@ -53,7 +53,7 @@ where
 async fn extract_transitions<TEntity, TRepo>(
     entities: Arc<Mutex<TRepo>>,
     blacklisted_entities: &HashSet<TEntity::TEntityId>,
-    tx: Transaction,
+    tx: BlockTransaction,
 ) -> Vec<EitherOrBoth<TEntity, TEntity>>
 where
     TEntity: OnChainEntity + TryFromBox + Clone,
@@ -61,8 +61,9 @@ where
     TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
+    let transaction = tx.to_transaction().unwrap();
     let mut consumed_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
-    for i in tx.clone().inputs {
+    for i in transaction.clone().inputs {
         let state_id = TEntity::TStateId::from(i.box_id);
         let entities = entities.lock().await;
         if entities.may_exist(state_id).await {
@@ -75,7 +76,7 @@ where
         }
     }
     let mut created_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
-    for bx in &tx.outputs {
+    for bx in &transaction.outputs {
         if let Some(entity) = TEntity::try_from_box(bx.clone()) {
             let entity_id = entity.get_self_ref();
             if !blacklisted_entities.contains(&entity_id) {
@@ -97,7 +98,8 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
+impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent>
+    for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TSink: Sink<Confirmed<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromBox + Clone + Debug,
@@ -108,13 +110,19 @@ where
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let transitions =
-                    extract_transitions(Arc::clone(&self.entities), &self.blacklisted_entities, tx.clone())
-                        .await;
+                let transitions = extract_transitions(
+                    Arc::clone(&self.entities),
+                    &self.blacklisted_entities,
+                    tx.clone(),
+                )
+                .await;
                 let num_transitions = transitions.len();
                 let is_success = num_transitions > 0;
                 for tr in transitions {
-                    let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
+                    let _ = self
+                        .topic
+                        .feed(Confirmed(StateUpdate::Transition(tr)))
+                        .await;
                 }
                 if is_success {
                     trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
@@ -124,9 +132,12 @@ where
                 }
             }
             LedgerTxEvent::UnappliedTx(tx) => {
-                let transitions =
-                    extract_transitions(Arc::clone(&self.entities), &self.blacklisted_entities, tx.clone())
-                        .await;
+                let transitions = extract_transitions(
+                    Arc::clone(&self.entities),
+                    &self.blacklisted_entities,
+                    tx.clone(),
+                )
+                .await;
                 let num_transitions = transitions.len();
                 let is_success = num_transitions > 0;
                 for tr in transitions {
@@ -160,7 +171,8 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TSink, TEntity, TRepo>
+impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate>
+    for UnconfirmedUpgradeHandler<TSink, TEntity, TRepo>
 where
     TSink: Sink<Unconfirmed<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromBox + Clone + Debug,
@@ -171,12 +183,18 @@ where
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                let transitions =
-                    extract_transitions(Arc::clone(&self.entities), &self.blacklisted_entities, tx.clone())
-                        .await;
+                let transitions = extract_transitions(
+                    Arc::clone(&self.entities),
+                    &self.blacklisted_entities,
+                    tx.clone(),
+                )
+                .await;
                 let is_success = !transitions.is_empty();
                 for tr in transitions {
-                    let _ = self.topic.feed(Unconfirmed(StateUpdate::Transition(tr))).await;
+                    let _ = self
+                        .topic
+                        .feed(Unconfirmed(StateUpdate::Transition(tr)))
+                        .await;
                 }
                 if is_success {
                     Some(MempoolUpdate::TxAccepted(tx))
@@ -185,9 +203,12 @@ where
                 }
             }
             MempoolUpdate::TxWithdrawn(tx) => {
-                let transitions =
-                    extract_transitions(Arc::clone(&self.entities), &self.blacklisted_entities, tx.clone())
-                        .await;
+                let transitions = extract_transitions(
+                    Arc::clone(&self.entities),
+                    &self.blacklisted_entities,
+                    tx.clone(),
+                )
+                .await;
                 let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self

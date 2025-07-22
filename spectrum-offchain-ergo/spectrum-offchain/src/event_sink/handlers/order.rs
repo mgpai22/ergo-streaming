@@ -50,17 +50,21 @@ where
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
+                let transaction = tx.clone().to_transaction().unwrap();
                 let mut is_success = false;
-                for i in tx.clone().inputs {
+                for i in transaction.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
                     if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::OrderEliminated(order_id))
+                            .await;
                     }
                 }
                 let ts_now = Utc::now().timestamp();
                 if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
-                    for bx in &tx.outputs {
+                    for bx in &transaction.outputs {
                         if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
                             is_success = true;
                             let _ = self
@@ -81,21 +85,20 @@ where
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
             LedgerTxEvent::UnappliedTx(tx) => {
+                let transaction = tx.clone().to_transaction().unwrap();
                 let mut is_success = false;
-                for bx in &tx.outputs {
-                    if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
+                for i in transaction.clone().inputs {
+                    let order_id = TOrd::TOrderId::from(i.box_id);
+                    if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
                         let _ = self
                             .topic
-                            .feed(OrderUpdate::OrderEliminated(
-                                <TOrdProto as Has<TOrd::TOrderId>>::get::<TOrd::TOrderId>(&order),
-                            ))
+                            .feed(OrderUpdate::OrderEliminated(order_id))
                             .await;
-                        info!(target: "offchain_lm", "Known order is eliminated");
-                        info!("Known order is eliminated");
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Observing order elimination in mempool");
                     return None;
                 }
                 Some(LedgerTxEvent::UnappliedTx(tx))
@@ -118,15 +121,19 @@ where
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
+                let transaction = tx.clone().to_transaction().unwrap();
                 let mut is_success = false;
-                for i in tx.clone().inputs {
+                for i in transaction.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
                     if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::OrderEliminated(order_id))
+                            .await;
                     }
                 }
-                for bx in &tx.outputs {
+                for bx in &transaction.outputs {
                     if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self
@@ -145,8 +152,9 @@ where
                 Some(MempoolUpdate::TxAccepted(tx))
             }
             MempoolUpdate::TxWithdrawn(tx) => {
+                let transaction = tx.clone().to_transaction().unwrap();
                 let mut is_success = false;
-                for bx in &tx.outputs {
+                for bx in &transaction.outputs {
                     if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self

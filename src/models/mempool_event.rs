@@ -1,13 +1,15 @@
 use base64::engine::general_purpose;
 use base64::Engine;
-use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 use ergo_mempool_sync::MempoolUpdate;
+use log::info;
 use serde::{Deserialize, Serialize};
+
+use crate::models::cbor::CborBlockTransaction;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MempoolEvent {
     TxAccepted { tx: String },
-    TxWithdrawn { tx: String },
+    TxWithdrawn { tx: String, confirmed: bool },
 }
 
 impl TryFrom<MempoolUpdate> for MempoolEvent {
@@ -16,16 +18,31 @@ impl TryFrom<MempoolUpdate> for MempoolEvent {
     fn try_from(value: MempoolUpdate) -> Result<Self, Self::Error> {
         match value {
             MempoolUpdate::TxAccepted(tx) => {
-                let tx_bytes: Vec<u8> = tx.sigma_serialize_bytes().unwrap();
-                let encoded: String = general_purpose::STANDARD_NO_PAD.encode(tx_bytes);
+                let cbor_tx = CborBlockTransaction::from(tx);
+                let tx_bytes = serde_cbor::to_vec(&cbor_tx).unwrap();
+                let encoded: String = general_purpose::STANDARD.encode(tx_bytes);
                 Ok(MempoolEvent::TxAccepted { tx: encoded })
             }
             MempoolUpdate::TxWithdrawn(tx) => {
-                let tx_bytes: Vec<u8> = tx.sigma_serialize_bytes().unwrap();
-                let encoded: String = general_purpose::STANDARD_NO_PAD.encode(tx_bytes);
-                Ok(MempoolEvent::TxWithdrawn { tx: encoded })
+                info!(target: "mempool_event", "TxWithdrawn: {}", tx.id.to_string());
+                let cbor_tx = CborBlockTransaction::from(tx);
+                let tx_bytes = serde_cbor::to_vec(&cbor_tx).unwrap();
+                let encoded: String = general_purpose::STANDARD.encode(tx_bytes);
+                Ok(MempoolEvent::TxWithdrawn {
+                    tx: encoded,
+                    confirmed: false,
+                })
             }
-            _ => Err(()),
+            MempoolUpdate::TxConfirmed(tx) => {
+                info!(target: "mempool_event", "TxConfirmed: {}", tx.id.to_string());
+                let cbor_tx = CborBlockTransaction::from(tx);
+                let tx_bytes = serde_cbor::to_vec(&cbor_tx).unwrap();
+                let encoded: String = general_purpose::STANDARD.encode(tx_bytes);
+                Ok(MempoolEvent::TxWithdrawn {
+                    tx: encoded,
+                    confirmed: true,
+                })
+            }
         }
     }
 }

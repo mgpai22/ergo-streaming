@@ -1,8 +1,10 @@
-use ergo_lib::chain::transaction::Transaction;
+use ergo_chain_sync::client::model::BlockTransaction;
 
-/// Possible events that can happen with transactions on-chain.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum LedgerTxEvent {
-    AppliedTx { timestamp: i64, tx: Transaction },
-    UnappliedTx(Transaction),
+    AppliedTx {
+        tx: BlockTransaction,
+        timestamp: i64,
+    },
+    UnappliedTx(BlockTransaction),
 }

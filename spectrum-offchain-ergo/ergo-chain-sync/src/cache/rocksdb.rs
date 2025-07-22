@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use ergo_lib::{
-    chain::transaction::{Transaction, TxId},
-    ergo_chain_types::BlockId,
-    ergotree_ir::serialization::SigmaSerializable,
-};
+use ergo_lib::{chain::transaction::TxId, ergo_chain_types::BlockId};
 
 use crate::constants::ERGO_MAX_ROLLBACK_DEPTH;
 use crate::model::{Block, BlockRecord};
@@ -74,7 +70,7 @@ impl ChainCache for ChainCacheRocksDB {
                 )
                 .unwrap();
 
-            let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
+            let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id).collect();
             // We package together all transactions ids into a Vec.
             db_tx
                 .put(
@@ -87,7 +83,7 @@ impl ChainCache for ChainCacheRocksDB {
             let serialized_transactions = block
                 .transactions
                 .iter()
-                .map(|t| t.sigma_serialize_bytes().unwrap());
+                .map(|t| bincode::serialize(t).unwrap());
 
             // Map each transaction id to a bincode-encoded representation of its transaction.
             for (tx_id, tx) in tx_ids.into_iter().zip(serialized_transactions) {
@@ -144,9 +140,15 @@ impl ChainCache for ChainCacheRocksDB {
                     db_tx
                         .delete(postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
                         .unwrap();
-                    db_tx.delete(postfixed_key(&oldest_id, HEIGHT_POSTFIX)).unwrap();
-                    db_tx.delete(postfixed_key(&oldest_id, PARENT_POSTFIX)).unwrap();
-                    db_tx.delete(postfixed_key(&oldest_id, CHILD_POSTFIX)).unwrap();
+                    db_tx
+                        .delete(postfixed_key(&oldest_id, HEIGHT_POSTFIX))
+                        .unwrap();
+                    db_tx
+                        .delete(postfixed_key(&oldest_id, PARENT_POSTFIX))
+                        .unwrap();
+                    db_tx
+                        .delete(postfixed_key(&oldest_id, CHILD_POSTFIX))
+                        .unwrap();
                 }
             } else {
                 // This is the very first block to add to the store
@@ -198,10 +200,14 @@ impl ChainCache for ChainCacheRocksDB {
                 let db_tx = db.transaction();
                 // The call to `get_for_update` is crucial; it plays an identical role as the WATCH
                 // command in redis (refer to docs of `take_best_block` in impl of [`RedisClient`].
-                if let Some(best_block_bytes) = db_tx.get_for_update(&best_block_key, true).unwrap() {
-                    let BlockRecord { id, height } = bincode::deserialize(&best_block_bytes).unwrap();
+                if let Some(best_block_bytes) = db_tx.get_for_update(&best_block_key, true).unwrap()
+                {
+                    let BlockRecord { id, height } =
+                        bincode::deserialize(&best_block_bytes).unwrap();
 
-                    if let Some(tx_ids_bytes) = db_tx.get(&postfixed_key(&id, TRANSACTION_POSTFIX)).unwrap() {
+                    if let Some(tx_ids_bytes) =
+                        db_tx.get(&postfixed_key(&id, TRANSACTION_POSTFIX)).unwrap()
+                    {
                         let mut transactions = vec![];
                         let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
                         for tx_id in tx_ids {
@@ -211,11 +217,13 @@ impl ChainCache for ChainCacheRocksDB {
                             // Don't need transaction anymore, delete
                             db_tx.delete(&tx_key).unwrap();
 
-                            transactions.push(Transaction::sigma_parse_bytes(&tx_bytes).unwrap());
+                            transactions.push(bincode::deserialize(&tx_bytes).unwrap());
                         }
 
-                        let parent_id_bytes =
-                            db_tx.get(&postfixed_key(&id, PARENT_POSTFIX)).unwrap().unwrap();
+                        let parent_id_bytes = db_tx
+                            .get(&postfixed_key(&id, PARENT_POSTFIX))
+                            .unwrap()
+                            .unwrap();
                         let parent_id: BlockId = bincode::deserialize(&parent_id_bytes).unwrap();
 
                         db_tx.delete(&best_block_key).unwrap();
@@ -305,6 +313,7 @@ mod tests {
             chain_cache::ChainCache,
             rocksdb::{HEIGHT_POSTFIX, TRANSACTION_POSTFIX},
         },
+        client::model::BlockTransaction,
         model::{Block, BlockRecord},
     };
 
@@ -360,12 +369,23 @@ mod tests {
 
         let rnd = rand::thread_rng().next_u32();
         let mut client = ChainCacheRocksDB {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+            db: Arc::new(
+                rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap(),
+            ),
             max_rollback_depth,
         };
 
         for i in 1..30 {
-            let transactions = force_any_val::<[Transaction; 10]>().to_vec();
+            let transactions = force_any_val::<[BlockTransaction; 10]>()
+                .to_vec()
+                .into_iter()
+                .map(|tx| BlockTransaction {
+                    id: tx.id,
+                    inputs: tx.inputs,
+                    data_inputs: tx.data_inputs,
+                    outputs: tx.outputs,
+                })
+                .collect();
             let parent_id = block_ids[i - 1];
             let id = block_ids[i];
             let timestamp = Utc::now().timestamp() as u64;

@@ -1,16 +1,15 @@
-use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::BlockId;
 use serde::{Deserialize, Serialize};
 
-use crate::client::model::FullBlock;
+use crate::client::model::{BlockTransaction, FullBlock};
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Block {
     pub id: BlockId,
     pub parent_id: BlockId,
     pub height: u32,
     pub timestamp: u64,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<BlockTransaction>,
 }
 
 impl From<FullBlock> for Block {
@@ -20,7 +19,7 @@ impl From<FullBlock> for Block {
             parent_id: fb.header.parent_id,
             height: fb.header.height,
             timestamp: fb.header.timestamp,
-            transactions: fb.block_transactions.transactions,
+            transactions: fb.transactions,
         }
     }
 }

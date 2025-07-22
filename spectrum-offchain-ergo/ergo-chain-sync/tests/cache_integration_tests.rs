@@ -19,7 +19,9 @@ use sigma_test_util::force_any_val;
 async fn test_rocksdb() {
     let rnd = rand::thread_rng().next_u32();
     test_client(ChainCacheRocksDB {
-        db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+        db: Arc::new(
+            rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap(),
+        ),
         max_rollback_depth: 10,
     })
     .await;
@@ -73,8 +75,8 @@ async fn test_client<C: ChainCache>(mut client: C) {
         // Check that the collections of transactions coincide.
         assert_eq!(b0.transactions.len(), b1.transactions.len());
         for tx0 in b0.transactions {
-            let tx1 = b1.transactions.iter().find(|t| tx0.id() == t.id()).unwrap();
-            assert_eq!(tx0, *tx1);
+            let tx1 = b1.transactions.iter().find(|t| tx0.id == t.id).unwrap();
+            assert_eq!(tx0.id, tx1.id);
         }
     }
 }

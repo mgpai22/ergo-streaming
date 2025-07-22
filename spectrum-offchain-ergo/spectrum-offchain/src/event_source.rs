@@ -1,7 +1,5 @@
-use futures::stream::StreamExt;
-use futures::{stream, Stream};
-
 use ergo_chain_sync::ChainUpgrade;
+use futures::{stream, Stream, StreamExt};
 
 use crate::event_source::data::LedgerTxEvent;
 

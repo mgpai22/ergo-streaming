@@ -1,12 +1,11 @@
 use async_trait::async_trait;
 use derive_more::From;
-use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use log::{error, info};
 use thiserror::Error;
 
-use crate::client::model::{ApiInfo, FullBlock};
+use crate::client::model::{ApiInfo, BlockTransaction, FullBlock};
 use crate::client::types::Url;
 
 use super::types::with_path;
@@ -35,7 +34,11 @@ pub trait ErgoNetwork: Send + Sync {
         to_height: u32,
     ) -> Result<Vec<BlockId>, Error>;
     async fn get_best_height(&self) -> Result<u32, Error>;
-    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error>;
+    async fn fetch_mempool(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<BlockTransaction>, Error>;
 
     async fn get_blocks_batch(
         &self,
@@ -126,13 +129,13 @@ impl ErgoNetwork for ErgoNodeHttpClient {
 
         info!(
             target: "ergo_network",
-            "Requesting {} blocks from /blocks/headerIds",
+            "Requesting {} blocks from /blockchain/blocks/byHeaderIds",
             block_ids.len()
         );
 
         let request = isahc::Request::builder()
             .method("POST")
-            .uri(with_path(&self.base_url, "/blocks/headerIds"))
+            .uri(with_path(&self.base_url, "/blockchain/blocks/byHeaderIds"))
             .header("Content-Type", "application/json")
             .header("accept", "application/json")
             .body(body_string.clone())?;
@@ -145,7 +148,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             let error_body = resp.text().await?;
             error!("Unexpected response from node: {}", error_body);
             Err(Error::UnsuccessfulRequest(format!(
-                "expected 200 from /blocks/headerIds, got {} with body: {}",
+                "expected 200 from /blockchain/blocks/byHeaderIds, got {} with body: {}",
                 resp.status(),
                 error_body
             )))
@@ -168,7 +171,11 @@ impl ErgoNetwork for ErgoNodeHttpClient {
         }
     }
 
-    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error> {
+    async fn fetch_mempool(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<BlockTransaction>, Error> {
         let mut resp = self
             .client
             .get_async(with_path(
@@ -181,7 +188,10 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .await?;
 
         if resp.status().is_success() {
-            resp.json().await.map_err(Error::from)
+            let raw_json = resp.text().await?;
+            println!("Raw JSON response: {}", raw_json);
+            let txs: Vec<BlockTransaction> = serde_json::from_str(&raw_json)?;
+            Ok(txs)
         } else {
             Err(Error::UnsuccessfulRequest(format!(
                 "expected 200 from /transactions/unconfirmed, got {}",
