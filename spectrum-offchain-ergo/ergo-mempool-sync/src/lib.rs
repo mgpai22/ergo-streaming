@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_stream::stream;
-use ergo_lib::chain::transaction::{Transaction, TxId};
+use ergo_chain_sync::client::model::BlockTransaction;
+use ergo_lib::chain::transaction::TxId;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::info;
@@ -19,17 +20,27 @@ use ergo_chain_sync::{chain_sync_stream, ChainSync, ChainUpgrade, InitChainSync}
 #[derive(Debug, Clone)]
 pub enum MempoolUpdate {
     /// Tx was accepted to mempool.
-    TxAccepted(Transaction),
+    TxAccepted(BlockTransaction),
     /// Tx was discarded.
-    TxWithdrawn(Transaction),
+    TxWithdrawn(BlockTransaction),
     /// Tx was confirmed.
-    TxConfirmed(Transaction),
+    TxConfirmed(BlockTransaction),
+}
+
+impl MempoolUpdate {
+    pub fn tx_id(&self) -> TxId {
+        match self {
+            MempoolUpdate::TxAccepted(tx) => tx.id,
+            MempoolUpdate::TxWithdrawn(tx) => tx.id,
+            MempoolUpdate::TxConfirmed(tx) => tx.id,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct SyncState {
     latest_blocks: VecDeque<HashSet<TxId>>,
-    mempool_projection: HashMap<TxId, Transaction>,
+    mempool_projection: HashMap<TxId, BlockTransaction>,
     pending_updates: VecDeque<MempoolUpdate>,
 }
 
@@ -47,8 +58,9 @@ const KEEP_LAST_BLOCKS: usize = 10;
 
 impl SyncState {
     fn push_block(&mut self, blk: Block) {
-        self.latest_blocks
-            .push_back(HashSet::from_iter(blk.transactions.into_iter().map(|tx| tx.id())));
+        self.latest_blocks.push_back(HashSet::from_iter(
+            blk.transactions.into_iter().map(|tx| tx.id),
+        ));
         if self.latest_blocks.len() > KEEP_LAST_BLOCKS {
             self.latest_blocks.pop_front();
         }
@@ -68,14 +80,14 @@ const TXS_PER_REQUEST: usize = 100;
 
 #[allow(clippy::await_holding_refcell_ref)]
 async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState>>) {
-    let mut pool: Vec<Transaction> = Vec::new();
+    let mut pool: Vec<BlockTransaction> = Vec::new();
     let mut offset = 0;
     loop {
         let txs = client.fetch_mempool(offset, TXS_PER_REQUEST).await;
         match txs {
             Ok(mut mempool_txs) => {
                 let num_txs = mempool_txs.len();
-                pool.append(mempool_txs.as_mut());
+                pool.append(&mut mempool_txs);
                 if num_txs < TXS_PER_REQUEST {
                     break;
                 }
@@ -90,27 +102,37 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
             }
         }
     }
-    let new_pool_ids = pool.iter().map(|tx| tx.id()).collect::<HashSet<_>>();
+    let new_pool_ids = pool.iter().map(|tx| tx.id).collect::<HashSet<_>>();
     let mut state = state.lock().await;
-    let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
+    let old_pool_ids = state
+        .mempool_projection
+        .keys()
+        .cloned()
+        .collect::<HashSet<_>>();
     let elim_txs = old_pool_ids.difference(&new_pool_ids);
     'check_withdrawn: for tx_id in elim_txs {
         if let Some(tx) = state.mempool_projection.remove(tx_id) {
             for blk in state.latest_blocks.iter() {
                 if blk.contains(tx_id) {
-                    state.pending_updates.push_back(MempoolUpdate::TxConfirmed(tx));
+                    state
+                        .pending_updates
+                        .push_back(MempoolUpdate::TxConfirmed(tx));
                     continue 'check_withdrawn;
                 }
             }
-            state.pending_updates.push_back(MempoolUpdate::TxWithdrawn(tx));
+            state
+                .pending_updates
+                .push_back(MempoolUpdate::TxWithdrawn(tx));
         }
     }
     for tx in pool {
-        if state.mempool_projection.contains_key(&tx.id()) {
+        if state.mempool_projection.contains_key(&tx.id) {
             continue;
         }
-        state.mempool_projection.insert(tx.id(), tx.clone());
-        state.pending_updates.push_back(MempoolUpdate::TxAccepted(tx));
+        state.mempool_projection.insert(tx.id, tx.clone());
+        state
+            .pending_updates
+            .push_back(MempoolUpdate::TxAccepted(tx));
     }
 }
 
