@@ -6,7 +6,7 @@ use async_stream::stream;
 use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
-use log::{error, info, trace};
+use log::{error, trace};
 use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
@@ -85,8 +85,8 @@ where
     async fn init(
         self,
         starting_height: u32,
-        tip_reached_signal: Option<&'a Once>,
-    ) -> ChainSync<TClient, TCache> {
+        tip_reached_signal: Option<&'static Once>,
+    ) -> ChainSync<'a, TClient, TCache> {
         ChainSync::init(
             starting_height,
             self.client,
@@ -256,23 +256,15 @@ where
     TClient: ErgoNetwork + Send + Sync + Unpin,
     TCache: ChainCache + Unpin + 'a,
 {
+    let cs = Arc::new(chain_sync);
     stream! {
         loop {
-            let delay = {chain_sync.delay.lock().await.take()};
-            if let Some(delay) = delay {
-                delay.await;
-            }
-            if let Some(upgrades) = chain_sync.try_upgrade().await {
-                for upgrade in upgrades {
-                    yield upgrade;
+            if let Some(upgrades) = cs.try_upgrade().await {
+                for upg in upgrades {
+                    yield upg;
                 }
             } else {
-                *chain_sync.delay.lock().await = Some(Delay::new(Duration::from_millis(chain_sync.throttle_ms)));
-                if let Some(sig) = chain_sync.tip_reached_signal {
-                    sig.call_once(|| {
-                        trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
-                    });
-                }
+                Delay::new(Duration::from_millis(cs.throttle_ms)).await;
             }
         }
     }
