@@ -4,15 +4,13 @@ use std::sync::Arc;
 
 use ergo_chain_sync::ChainUpgrade;
 use ergo_mempool_sync::MempoolUpdate;
-
 use log::info;
 
-use crate::models::kafka_event::BlockEvent;
+use crate::models::block_event::BlockEvent;
 use crate::models::mempool_event::MempoolEvent;
-use kafka::producer::{Producer, Record};
-
 use crate::models::tx_event::TxEvent;
 use async_std::task::spawn_blocking;
+use kafka::producer::{Producer, Record};
 
 pub fn block_event_source<S>(
     upstream: S,
@@ -65,15 +63,20 @@ fn process_upgrade(upgr: ChainUpgrade) -> Vec<TxEvent> {
                 tx,
                 timestamp: blk.timestamp as i64,
                 block_height: blk.height as i32,
+                block_id: blk.id.clone().to_string(),
             })
             .collect(),
-        ChainUpgrade::RollBackward(blk) => {
-            blk.transactions
-                .into_iter()
-                .rev() // we unapply txs in reverse order.
-                .map(TxEvent::UnappliedTx)
-                .collect()
-        }
+        ChainUpgrade::RollBackward(blk) => blk
+            .transactions
+            .into_iter()
+            .rev() // we unapply txs in reverse order.
+            .map(|tx| TxEvent::UnappliedTx {
+                tx,
+                timestamp: blk.timestamp as i64,
+                block_height: blk.height as i32,
+                block_id: blk.id.clone().to_string(),
+            })
+            .collect(),
     }
 }
 
@@ -91,14 +94,9 @@ where
         let topic = topic.clone();
         let producer = producer.clone();
         async move {
-            let mempool_event = MempoolEvent::try_from(event.clone());
-            if let Ok(kafka_event) = mempool_event {
-                let kafka_string = serde_json::to_string(&kafka_event).unwrap();
-                let tx_id: String = match event {
-                    MempoolUpdate::TxAccepted(tx) => tx.id().into(),
-                    MempoolUpdate::TxWithdrawn(tx) => tx.id().into(),
-                    _ => "".to_string(),
-                };
+            if let Ok(mempool_event) = MempoolEvent::try_from(event.clone()) {
+                let kafka_string = serde_json::to_string(&mempool_event).unwrap();
+                let tx_id: String = event.tx_id().to_string();
 
                 let topic = topic.clone().lock().await.clone();
                 spawn_blocking(move || {
