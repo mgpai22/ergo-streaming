@@ -189,7 +189,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
 
         if resp.status().is_success() {
             let raw_json = resp.text().await?;
-            println!("Raw JSON response: {}", raw_json);
+            // println!("Raw JSON response: {}", raw_json);
             let txs: Vec<BlockTransaction> = serde_json::from_str(&raw_json)?;
             Ok(txs)
         } else {
